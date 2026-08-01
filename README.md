@@ -16,7 +16,7 @@ Best on a phone, outside.
 | ⛰️ Altitude | How high up you are |
 | 📌 Mark this spot | Save where you're standing and name it |
 | ⭐ Your places | Every place you've marked, nearest first, with distance and direction |
-| 🧭 Radar | A circle showing everything around you, north up |
+|  🗺️ Live map | A real OpenStreetMap that moves with you, with pins for your places |
 | 🗺️ Open in Maps | Hands a place off to your maps app for directions |
 | 🚶 Trip | How far you've walked, how long, top speed and average |
 | 📏 Miles or kilometres | Switch any time |

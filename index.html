@@ -80,8 +80,64 @@
   .stat .k{color:var(--dim);font-size:11.5px;text-transform:uppercase;
     letter-spacing:.6px;margin-top:2px}
 
-  /* ---- radar ---- */
-  #radar{width:100%;height:auto;display:block;border-radius:12px;background:var(--panel2)}
+  /* ---- the map ---- */
+  #map{
+    position:relative;width:100%;height:340px;border-radius:12px;overflow:hidden;
+    background:#1c2340;touch-action:none;cursor:grab;user-select:none;
+  }
+  #map.dragging{cursor:grabbing}
+  #world,#pins{position:absolute;inset:0}
+  #pins{pointer-events:none}
+  #world img{
+    position:absolute;width:256px;height:256px;
+    pointer-events:none;user-select:none;
+  }
+
+  /* you */
+  .me{position:absolute;transform:translate(-50%,-50%);pointer-events:none}
+  .me-acc{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    border-radius:50%;background:rgba(59,130,246,.18);
+    border:1px solid rgba(59,130,246,.5)}
+  .me-dot{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:18px;height:18px;border-radius:50%;background:#2f7bff;
+    border:3px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.35),0 2px 6px rgba(0,0,0,.5)}
+  .me-head{position:absolute;left:50%;top:50%;width:0;height:0;
+    border-left:7px solid transparent;border-right:7px solid transparent;
+    border-bottom:15px solid #2f7bff;
+    transform-origin:50% 100%;filter:drop-shadow(0 0 1px #fff)}
+
+  /* saved places */
+  .pin{position:absolute;transform:translate(-50%,-100%);text-align:center}
+  .pin-dot{width:15px;height:15px;border-radius:50% 50% 50% 0;background:#ff5f6d;
+    border:2px solid #fff;transform:rotate(-45deg);margin:0 auto;
+    box-shadow:0 2px 5px rgba(0,0,0,.5)}
+  .pin-name{font-size:11px;font-weight:700;color:#fff;margin-top:3px;
+    background:rgba(11,16,32,.8);padding:1px 6px;border-radius:6px;white-space:nowrap;
+    display:inline-block}
+
+  .map-ui{position:absolute;top:10px;right:10px;display:flex;flex-direction:column;gap:6px}
+  .map-btn{
+    width:36px;height:36px;padding:0;font-size:21px;line-height:1;font-weight:700;
+    background:rgba(11,16,32,.82);border:1px solid var(--line);color:var(--text);
+    border-radius:9px;backdrop-filter:blur(4px);
+  }
+  .follow-btn{
+    position:absolute;left:10px;bottom:10px;padding:8px 13px;font-size:13px;
+    background:rgba(11,16,32,.82);border:1px solid var(--line);color:var(--dim);
+    border-radius:9px;backdrop-filter:blur(4px);
+  }
+  .follow-btn.on{background:var(--mark);border-color:var(--mark);color:#fff}
+  .attrib{
+    position:absolute;right:6px;bottom:5px;font-size:10.5px;
+    background:rgba(11,16,32,.72);padding:2px 7px;border-radius:6px;color:var(--dim);
+  }
+  .attrib a{color:var(--dim)}
+  .map-msg{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    color:var(--dim);font-size:14px;text-align:center;padding:20px;
+    background:rgba(11,16,32,.55);
+  }
+  .map-msg.hide{display:none}
   .radar-note{color:var(--dim);font-size:12.5px;text-align:center;margin-top:9px}
 
   /* ---- saved places ---- */
@@ -149,11 +205,22 @@
     </div>
   </div>
 
-  <!-- ============ RADAR ============ -->
+  <!-- ============ THE MAP ============ -->
   <div class="card">
-    <h2>🧭 What's around you</h2>
-    <canvas id="radar" width="600" height="600"></canvas>
-    <div class="radar-note" id="radarNote">North is up. Mark a place and it shows up here.</div>
+    <h2>🗺️ The map</h2>
+    <div id="map">
+      <div id="world"></div>
+      <div id="pins"></div>
+      <div class="map-ui">
+        <button class="map-btn" id="zoomIn"  title="Zoom in">+</button>
+        <button class="map-btn" id="zoomOut" title="Zoom out">−</button>
+      </div>
+      <button class="follow-btn" id="followBtn">🎯 Follow me</button>
+      <div class="attrib">© <a href="https://www.openstreetmap.org/copyright"
+        target="_blank" rel="noopener">OpenStreetMap</a></div>
+      <div class="map-msg" id="mapMsg">press Start GPS to put yourself on the map</div>
+    </div>
+    <div class="radar-note" id="radarNote">Drag to look around. The map follows you as you move.</div>
   </div>
 
   <!-- ============ MARK A SPOT ============ -->
@@ -406,7 +473,9 @@ function paint(){
   }
   paintPlaces();
   paintTrip();
-  paintRadar();
+  // the map moves with you
+  if (following && here) centreOnMe();
+  else drawMap();
 }
 
 function placeRow(p){
@@ -453,87 +522,216 @@ function paintTrip(){
   $('tripBtn').className   = trip.running ? 'btn-stop' : 'btn-go';
 }
 
-/* ---------------- the radar ---------------- */
+/* ---------------- the map ----------------
+   A real map, drawn from OpenStreetMap tiles.
 
-function paintRadar(){
-  const cv = $('radar');
-  const size = Math.min(cv.parentElement.clientWidth, 460);
-  const dpr = window.devicePixelRatio || 1;
-  cv.width = size * dpr; cv.height = size * dpr;
-  cv.style.height = size + 'px';
-  const g = cv.getContext('2d');
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.clearRect(0, 0, size, size);
+   The world at zoom z is a square 256 * 2^z pixels across. Every point on
+   earth has a spot on that square (Web Mercator, the projection every
+   online map uses). We work out which square of it you're looking at, then
+   lay down the 256px tile images that cover it.
+------------------------------------------- */
 
-  const cx = size/2, cy = size/2, edge = size/2 - 26;
+const TILE = 256;
+const MIN_Z = 3, MAX_Z = 19;
 
-  // how far out the edge of the circle reaches
-  let range = 100;
-  if (here && places.length){
-    const far = Math.max(...places.map(p => distance(here, p)));
-    range = Math.max(30, far * 1.15);
+let mapCenter = load('gps.center.v1', { lat: 40.7128, lon: -74.0060 });
+let zoom      = load('gps.zoom.v1', 16);
+let following = true;
+const tileCache = new Map();          // "z/x/y" -> the <img> we already made
+
+const worldSize = z => TILE * Math.pow(2, z);
+
+// lat/lon -> a pixel on the whole-world square
+function project(lat, lon, z){
+  const s = worldSize(z);
+  const x = (lon + 180) / 360 * s;
+  const sinLat = Math.sin(rad(Math.max(-85.05, Math.min(85.05, lat))));
+  const y = (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * s;
+  return { x, y };
+}
+
+// and back again
+function unproject(x, y, z){
+  const s = worldSize(z);
+  const lon = x / s * 360 - 180;
+  const n = Math.PI - 2 * Math.PI * y / s;
+  const lat = deg(Math.atan(Math.sinh(n)));
+  return { lat, lon };
+}
+
+function mapBox(){
+  const m = $('map');
+  return { w: m.clientWidth, h: m.clientHeight };
+}
+
+// where the top-left corner of the view sits on the world square
+function viewOrigin(){
+  const { w, h } = mapBox();
+  const c = project(mapCenter.lat, mapCenter.lon, zoom);
+  return { ox: c.x - w/2, oy: c.y - h/2, w, h };
+}
+
+function drawMap(){
+  const { ox, oy, w, h } = viewOrigin();
+  if (!w || !h) return;
+
+  const world = $('world');
+  const max = Math.pow(2, zoom);
+  const x0 = Math.floor(ox / TILE), x1 = Math.floor((ox + w) / TILE);
+  const y0 = Math.floor(oy / TILE), y1 = Math.floor((oy + h) / TILE);
+
+  const wanted = new Set();
+  for (let ty = y0; ty <= y1; ty++){
+    if (ty < 0 || ty >= max) continue;              // above the pole or below it
+    for (let tx = x0; tx <= x1; tx++){
+      const wrapped = ((tx % max) + max) % max;     // the world wraps round east-west
+      const key = zoom + '/' + wrapped + '/' + ty;
+      const slot = key + '@' + tx;                  // same tile can show twice when wrapped
+      wanted.add(slot);
+
+      let img = tileCache.get(slot);
+      if (!img){
+        img = document.createElement('img');
+        img.src = 'https://tile.openstreetmap.org/' + zoom + '/' + wrapped + '/' + ty + '.png';
+        img.alt = '';
+        img.loading = 'eager';
+        img.onerror = () => { img.style.visibility = 'hidden'; };
+        world.appendChild(img);
+        tileCache.set(slot, img);
+      }
+      img.style.left = (tx * TILE - ox) + 'px';
+      img.style.top  = (ty * TILE - oy) + 'px';
+    }
   }
 
-  // rings
-  g.strokeStyle = '#2a3358'; g.lineWidth = 1;
-  [1, .66, .33].forEach(f => {
-    g.beginPath(); g.arc(cx, cy, edge*f, 0, Math.PI*2); g.stroke();
+  // throw away tiles that scrolled out of view
+  for (const [slot, img] of tileCache){
+    if (!wanted.has(slot)){ img.remove(); tileCache.delete(slot); }
+  }
+
+  drawPins(ox, oy);
+}
+
+function drawPins(ox, oy){
+  const pins = $('pins');
+  let html = '';
+
+  places.forEach(p => {
+    const q = project(p.lat, p.lon, zoom);
+    html += `<div class="pin" style="left:${q.x-ox}px;top:${q.y-oy}px">
+      <div class="pin-dot"></div><div class="pin-name">${escapeHtml(p.name)}</div>
+    </div>`;
   });
-  // cross hairs
-  g.beginPath();
-  g.moveTo(cx-edge, cy); g.lineTo(cx+edge, cy);
-  g.moveTo(cx, cy-edge); g.lineTo(cx, cy+edge);
-  g.stroke();
 
-  // compass letters
-  g.fillStyle = '#96a1c9';
-  g.font = '600 13px system-ui, sans-serif';
-  g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText('N', cx, cy-edge-13);
-  g.fillText('S', cx, cy+edge+13);
-  g.fillText('E', cx+edge+13, cy);
-  g.fillText('W', cx-edge-13, cy);
+  if (here){
+    const q = project(here.lat, here.lon, zoom);
+    // how many pixels one metre is at this zoom, at this latitude
+    const mPerPx = 156543.03392 * Math.cos(rad(here.lat)) / Math.pow(2, zoom);
+    const accPx = Math.min(300, (here.acc || 0) / mPerPx);
+    const headArrow = (here.head != null && !isNaN(here.head))
+      ? `<div class="me-head" style="transform:translate(-50%,-100%) rotate(${here.head}deg) translateY(-13px)"></div>`
+      : '';
+    html += `<div class="me" style="left:${q.x-ox}px;top:${q.y-oy}px">
+      <div class="me-acc" style="width:${accPx*2}px;height:${accPx*2}px"></div>
+      ${headArrow}<div class="me-dot"></div>
+    </div>`;
+  }
 
-  // ring label
-  g.fillStyle = '#606b96';
-  g.font = '11px system-ui, sans-serif';
-  g.fillText(fmtDist(range), cx + edge*0.70, cy - 9);
+  pins.innerHTML = html;
+  $('mapMsg').className = 'map-msg' + (here ? ' hide' : '');
+}
 
-  if (!here){
-    g.fillStyle = '#96a1c9';
-    g.font = '13px system-ui, sans-serif';
-    g.fillText('press Start GPS', cx, cy);
+function centreOnMe(){
+  if (!here) return;
+  mapCenter = { lat: here.lat, lon: here.lon };
+  save('gps.center.v1', mapCenter);
+  drawMap();
+}
+
+function setFollow(on){
+  following = on;
+  $('followBtn').className = 'follow-btn' + (on ? ' on' : '');
+  $('followBtn').textContent = on ? '🎯 Following you' : '🎯 Follow me';
+  if (on) centreOnMe();
+}
+
+function setZoom(z){
+  zoom = Math.max(MIN_Z, Math.min(MAX_Z, z));
+  save('gps.zoom.v1', zoom);
+  tileCache.forEach(img => img.remove());
+  tileCache.clear();
+  drawMap();
+}
+
+$('zoomIn').onclick  = () => setZoom(zoom + 1);
+$('zoomOut').onclick = () => setZoom(zoom - 1);
+$('followBtn').onclick = () => setFollow(!following);
+
+/* ---- dragging the map around ---- */
+
+let drag = null;
+const pointers = new Map();
+let pinchFrom = 0;
+
+$('map').addEventListener('pointerdown', e => {
+  if (e.target.closest('button, a')) return;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 1){
+    drag = { x: e.clientX, y: e.clientY };
+    $('map').classList.add('dragging');
+    $('map').setPointerCapture(e.pointerId);
+  } else if (pointers.size === 2){
+    drag = null;
+    pinchFrom = pinchGap();
+  }
+});
+
+function pinchGap(){
+  const [a, b] = [...pointers.values()];
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+$('map').addEventListener('pointermove', e => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (pointers.size === 2 && pinchFrom){
+    const now = pinchGap();
+    if (now / pinchFrom > 1.8){ setZoom(zoom + 1); pinchFrom = now; }
+    if (now / pinchFrom < 0.55){ setZoom(zoom - 1); pinchFrom = now; }
     return;
   }
+  if (!drag) return;
 
-  // you, in the middle
-  g.beginPath(); g.arc(cx, cy, 7, 0, Math.PI*2);
-  g.fillStyle = '#22c58b'; g.fill();
-  g.beginPath(); g.arc(cx, cy, 13, 0, Math.PI*2);
-  g.strokeStyle = 'rgba(34,197,139,.45)'; g.lineWidth = 2; g.stroke();
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag = { x: e.clientX, y: e.clientY };
 
-  // everything you've marked
-  places.forEach(p => {
-    const d = distance(here, p);
-    const b = rad(bearing(here, p));
-    const r = Math.min(edge, edge * (d / range));
-    const x = cx + Math.sin(b) * r;
-    const y = cy - Math.cos(b) * r;
+  // moving the map by hand means you want to look somewhere else
+  if (following) setFollow(false);
 
-    g.beginPath(); g.arc(x, y, 6, 0, Math.PI*2);
-    g.fillStyle = '#5b8cff'; g.fill();
+  const c = project(mapCenter.lat, mapCenter.lon, zoom);
+  mapCenter = unproject(c.x - dx, c.y - dy, zoom);
+  save('gps.center.v1', mapCenter);
+  drawMap();
+});
 
-    g.fillStyle = '#eef1ff';
-    g.font = '600 12px system-ui, sans-serif';
-    g.textAlign = x > cx ? 'right' : 'left';
-    g.fillText(p.name, x + (x > cx ? -10 : 10), y);
-    g.textAlign = 'center';
-  });
-
-  $('radarNote').textContent = places.length
-    ? 'North is up. The outer ring is ' + fmtDist(range) + ' away.'
-    : 'North is up. Mark a place and it shows up here.';
+function endPointer(e){
+  pointers.delete(e.pointerId);
+  if (pointers.size < 2) pinchFrom = 0;
+  if (pointers.size === 0){
+    drag = null;
+    $('map').classList.remove('dragging');
+  }
 }
+$('map').addEventListener('pointerup', endPointer);
+$('map').addEventListener('pointercancel', endPointer);
+
+$('map').addEventListener('wheel', e => {
+  e.preventDefault();
+  setZoom(zoom + (e.deltaY < 0 ? 1 : -1));
+}, { passive: false });
+
+$('map').addEventListener('dblclick', () => setZoom(zoom + 1));
 
 /* ---------------- marking places ---------------- */
 
@@ -616,13 +814,15 @@ $('uMet').onclick = () => setUnits('metric');
 
 $('startBtn').onclick = () => watchId === null ? startGPS() : stopGPS();
 
-window.addEventListener('resize', paintRadar);
+window.addEventListener('resize', drawMap);
 
 // keep "last fix" and the trip clock honest even between fixes
 setInterval(() => { if (here) { $('sFix').textContent = agoText(here.at); paintTrip(); } }, 1000);
 
 setUnits(units);
+setFollow(true);
 paint();
+drawMap();
 
 // file:// pages can't always use GPS — say so up front rather than failing oddly
 if (location.protocol === 'file:'){

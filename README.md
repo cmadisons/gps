@@ -21,6 +21,13 @@ Best on a phone, outside.
 | 🗺️ Open in Maps | Hands a place off to your maps app for directions |
 | 🚶 Trip | How far you've walked, how long, top speed and average |
 | 🔎 Find a place | Search any address, town or landmark and jump the map there |
+| 🚗 Directions | Real routes along real roads to anywhere you pick |
+| 🛣️ Every way there | All the options drawn in blue — tap any to take it |
+| ❤️ The best way | The fastest one drawn in red |
+| 📍 More than one stop | Add several places and it plans the whole run |
+| ✏️ Name places | `364 Waterloo Road ::: home` — your name, address underneath |
+| ⏱️ How long you stay | Learns your usual stay at each place (not home) |
+| 🕐 The plan | When you'll reach each stop, and whether it'll still be open |
 | 📏 Miles or kilometres | Switch any time |
 
 Your location **never leaves the page**. There's no server to send it to —
@@ -46,8 +53,12 @@ find you. The [online version](https://cmadisons.github.io/gps/) always works.
 **Your browser will ask permission** the first time. It has to — no web page
 can read your location without you saying yes.
 
-**Addresses and the map need internet.** Street names come from
-OpenStreetMap's lookup service. Without a connection you still get your
+**Closing times are yours to set.** Tap 🕐 on a place and type when it
+shuts, like `17:30`. The plan then tells you whether you'll make it, and
+warns you when it'll be tight.
+
+**Addresses, routes and the map need internet.** Street names and directions come
+from OpenStreetMap's free services. Without a connection you still get your
 position, distances and the trip — just no address and no map picture.
 
 **Indoors is fuzzy.** Inside a building your device guesses from wifi, which

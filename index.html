@@ -70,7 +70,24 @@
     font-variant-numeric:tabular-nums;font-size:27px;font-weight:700;
     letter-spacing:-.5px;text-align:center;margin:2px 0 4px;word-break:break-word;
   }
+  .addr{
+    text-align:center;font-size:17px;font-weight:700;line-height:1.35;
+    margin:0 0 6px;min-height:23px;word-break:break-word;
+  }
+  .addr.looking{color:var(--dim);font-weight:500;font-size:14px}
   .acc{text-align:center;color:var(--dim);font-size:13.5px;margin-bottom:14px}
+
+  /* search results */
+  .result{
+    display:flex;align-items:center;gap:10px;padding:11px 0;
+    border-bottom:1px solid var(--line);
+  }
+  .result:last-of-type{border-bottom:none}
+  .result-txt{flex:1;min-width:0}
+  .result-name{font-weight:600;font-size:15px;word-break:break-word}
+  .result-sub{color:var(--dim);font-size:12.5px;word-break:break-word}
+  .result-btns{display:flex;gap:5px;flex-shrink:0}
+  .searching{color:var(--dim);font-size:13.5px;padding:14px 0;text-align:center}
   .acc b{color:var(--go)}
   .acc.rough b{color:var(--warn)}
 
@@ -188,6 +205,7 @@
   <!-- ============ WHERE YOU ARE ============ -->
   <div class="card">
     <h2>📍 Where you are</h2>
+    <div class="addr" id="addr">—</div>
     <div class="coords" id="coords">— · —</div>
     <div class="acc" id="acc">waiting for a signal…</div>
     <div class="stats">
@@ -221,6 +239,20 @@
       <div class="map-msg" id="mapMsg">press Start GPS to put yourself on the map</div>
     </div>
     <div class="radar-note" id="radarNote">Drag to look around. The map follows you as you move.</div>
+  </div>
+
+  <!-- ============ FIND AN ADDRESS ============ -->
+  <div class="card">
+    <h2>🔎 Find a place</h2>
+    <div class="row">
+      <div style="flex:1;min-width:180px">
+        <input id="findInput" placeholder="An address, a town, a landmark…">
+      </div>
+      <button class="btn-mark" id="findBtn" style="flex:0 0 auto">Search</button>
+    </div>
+    <div id="findResults"></div>
+    <div class="hint">Pick a result to move the map there — handy for setting a starting
+      point before the GPS finds you, or looking somewhere you aren't.</div>
   </div>
 
   <!-- ============ MARK A SPOT ============ -->
@@ -476,6 +508,7 @@ function paint(){
   // the map moves with you
   if (following && here) centreOnMe();
   else drawMap();
+  lookupAddress();
 }
 
 function placeRow(p){
@@ -733,11 +766,145 @@ $('map').addEventListener('wheel', e => {
 
 $('map').addEventListener('dblclick', () => setZoom(zoom + 1));
 
+/* ---------------- knowing where you are ----------------
+   Turning coordinates into a real address, and an address back into
+   coordinates, using OpenStreetMap's Nominatim service.
+
+   They ask for no more than one lookup a second, so we only ask when
+   you've genuinely moved, and never on every keystroke.
+-------------------------------------------------------- */
+
+const NOM = 'https://nominatim.openstreetmap.org';
+
+let addrShown  = null;     // where the address on screen belongs to
+let addrAt     = 0;        // when we last asked
+let addrBusy   = false;
+
+// build something short and readable out of Nominatim's pile of fields
+function shortAddress(data){
+  if (!data) return null;
+  const a = data.address || {};
+  const street = [a.house_number, a.road].filter(Boolean).join(' ');
+  const area = a.neighbourhood || a.suburb || a.hamlet || a.village ||
+               a.town || a.city || a.county;
+  const bits = [street || a.amenity || a.shop || a.building || data.name, area]
+    .filter(Boolean);
+  if (!bits.length) return (data.display_name || '').split(',').slice(0,2).join(',');
+  return bits.join(', ');
+}
+
+async function lookupAddress(){
+  if (!here || addrBusy) return;
+  // only ask again once you've actually moved, and not more than every 12s
+  if (addrShown && distance(addrShown, here) < 40 && Date.now() - addrAt < 60000) return;
+  if (Date.now() - addrAt < 12000) return;
+
+  addrBusy = true;
+  addrAt = Date.now();
+  const at = { lat: here.lat, lon: here.lon };
+  try {
+    const r = await fetch(`${NOM}/reverse?format=jsonv2&lat=${at.lat}&lon=${at.lon}&zoom=18`);
+    if (!r.ok) throw new Error(r.status);
+    const data = await r.json();
+    const label = shortAddress(data);
+    if (label){
+      addrShown = at;
+      $('addr').className = 'addr';
+      $('addr').textContent = label;
+    }
+  } catch {
+    // no internet, or the service said no — the coordinates still work fine
+    if (!addrShown){
+      $('addr').className = 'addr looking';
+      $('addr').textContent = 'address needs internet';
+    }
+  } finally {
+    addrBusy = false;
+  }
+}
+
+/* ---- searching for a place ---- */
+
+let results = [];
+
+async function search(q){
+  $('findResults').innerHTML = `<div class="searching">looking for “${escapeHtml(q)}”…</div>`;
+  try {
+    const r = await fetch(`${NOM}/search?format=jsonv2&limit=6&q=${encodeURIComponent(q)}`);
+    if (!r.ok) throw new Error(r.status);
+    results = await r.json();
+  } catch {
+    results = null;
+  }
+  paintResults();
+}
+
+function paintResults(){
+  if (results === null){
+    $('findResults').innerHTML =
+      `<div class="searching">Couldn't search — that needs internet.</div>`;
+    return;
+  }
+  if (!results.length){
+    $('findResults').innerHTML = `<div class="searching">Nothing found. Try fewer words.</div>`;
+    return;
+  }
+  $('findResults').innerHTML = results.map((r, i) => {
+    const parts = (r.display_name || '').split(',');
+    return `
+      <div class="result" data-i="${i}">
+        <div class="result-txt">
+          <div class="result-name">${escapeHtml(parts[0] || r.display_name)}</div>
+          <div class="result-sub">${escapeHtml(parts.slice(1, 4).join(',').trim())}</div>
+        </div>
+        <div class="result-btns">
+          <button class="btn-ghost" data-act="goto">🗺️ Show</button>
+          <button class="btn-ghost" data-act="keep">📌 Save</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+$('findBtn').onclick = () => {
+  const q = $('findInput').value.trim();
+  if (!q) return toast('Type a place first');
+  search(q);
+};
+
+$('findInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') $('findBtn').click();
+});
+
+$('findResults').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  const r = results[+btn.closest('.result').dataset.i];
+  if (!r) return;
+  const lat = parseFloat(r.lat), lon = parseFloat(r.lon);
+  const name = (r.display_name || 'Place').split(',')[0];
+
+  if (btn.dataset.act === 'keep'){
+    places.push({ id: String(Date.now()), name, lat, lon, at: Date.now() });
+    save(PLACES, places);
+    paint();
+    return toast('📌 Saved ' + name);
+  }
+  setFollow(false);                 // we're looking somewhere that isn't you
+  mapCenter = { lat, lon };
+  save('gps.center.v1', mapCenter);
+  setZoom(Math.max(zoom, 15));
+  $('map').scrollIntoView({ behavior:'smooth', block:'center' });
+  toast('🗺️ Showing ' + name);
+});
+
 /* ---------------- marking places ---------------- */
 
 $('markBtn').onclick = () => {
   if (!here) return toast('Start the GPS first');
-  const name = $('markName').value.trim() ||
+  // no name given? use the address we already worked out
+  const knownHere = addrShown && distance(addrShown, here) < 60
+    ? $('addr').textContent : null;
+  const name = $('markName').value.trim() || knownHere ||
                'Spot ' + (places.length + 1);
   places.push({ id: String(Date.now()), name, lat: here.lat, lon: here.lon,
                 acc: here.acc, at: Date.now() });

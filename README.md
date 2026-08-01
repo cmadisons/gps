@@ -10,6 +10,7 @@ Best on a phone, outside.
 
 | | |
 |---|---|
+| 🏠 Your address | The actual street you're standing on, not just numbers |
 | 📍 Where you are | Your exact spot, and how accurate the fix is |
 | 🏃 Speed | How fast you're moving, in mph or km/h |
 | 🧭 Heading | Which way you're pointed |
@@ -19,6 +20,7 @@ Best on a phone, outside.
 |  🗺️ Live map | A real OpenStreetMap that moves with you, with pins for your places |
 | 🗺️ Open in Maps | Hands a place off to your maps app for directions |
 | 🚶 Trip | How far you've walked, how long, top speed and average |
+| 🔎 Find a place | Search any address, town or landmark and jump the map there |
 | 📏 Miles or kilometres | Switch any time |
 
 Your location **never leaves the page**. There's no server to send it to —
@@ -43,6 +45,10 @@ find you. The [online version](https://cmadisons.github.io/gps/) always works.
 
 **Your browser will ask permission** the first time. It has to — no web page
 can read your location without you saying yes.
+
+**Addresses and the map need internet.** Street names come from
+OpenStreetMap's lookup service. Without a connection you still get your
+position, distances and the trip — just no address and no map picture.
 
 **Indoors is fuzzy.** Inside a building your device guesses from wifi, which
 can be off by a lot. Outside with a clear view of the sky it's within a few
